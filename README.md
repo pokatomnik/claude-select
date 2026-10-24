@@ -46,26 +46,26 @@ runnable as `python -m claude_select`.
 To install straight from GitHub with [uv](https://docs.astral.sh/uv/):
 
 ```sh
-uv tool install git+https://github.com/OWNER/claude-select
+uv tool install git+https://github.com/pokatomnik/claude-select
 ```
 
 Pin a release tag or commit by appending it to the URL:
 
 ```sh
-uv tool install git+https://github.com/OWNER/claude-select@v0.1.0
+uv tool install git+https://github.com/pokatomnik/claude-select@v0.1.0
 ```
 
 Update to the latest version, or reinstall after a change:
 
 ```sh
 uv tool upgrade claude-select
-uv tool install --force git+https://github.com/OWNER/claude-select
+uv tool install --force git+https://github.com/pokatomnik/claude-select
 ```
 
 Run once without installing:
 
 ```sh
-uvx --from git+https://github.com/OWNER/claude-select claude-select
+uvx --from git+https://github.com/pokatomnik/claude-select claude-select
 ```
 
 ## Usage
@@ -116,12 +116,12 @@ claude() {
 
 `claude-select` deliberately uses the variables [CC] already reads:
 
-| Variable                   | Required                | Purpose                                                                                                                      |
-| -------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `ANTHROPIC_BASE_URL`       | yes                     | API base URL of your endpoint.                                                                                               |
-| `ANTHROPIC_API_KEY`        | exactly one credential  | Sent as the `x-api-key` header.                                                                                              |
-| `ANTHROPIC_AUTH_TOKEN`     | exactly one credential  | Sent as `Authorization: Bearer <token>`.                                                                                     |
-| `CLAUDE_SELECT_MODELS_URL` | no                      | Overrides the models endpoint. Defaults to `<base>/v1/models`, or `<base>/models` when the base URL already ends with `/v1`. |
+| Variable                   | Required               | Purpose                                                                                                                      |
+| -------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `ANTHROPIC_BASE_URL`       | yes                    | API base URL of your endpoint.                                                                                               |
+| `ANTHROPIC_API_KEY`        | exactly one credential | Sent as the `x-api-key` header.                                                                                              |
+| `ANTHROPIC_AUTH_TOKEN`     | exactly one credential | Sent as `Authorization: Bearer <token>`.                                                                                     |
+| `CLAUDE_SELECT_MODELS_URL` | no                     | Overrides the models endpoint. Defaults to `<base>/v1/models`, or `<base>/models` when the base URL already ends with `/v1`. |
 
 Most gateways expect `ANTHROPIC_AUTH_TOKEN`; the official Anthropic API uses
 `ANTHROPIC_API_KEY`. If your provider exposes the catalog under a different
