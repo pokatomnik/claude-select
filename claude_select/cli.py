@@ -37,7 +37,8 @@ Environment:
   CLAUDE_SELECT_MODELS_URL   Optional. Overrides the models endpoint
                              (default: <base URL>/v1/models).
 
-At least one of ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN is required.
+Set exactly one of ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN. Setting both is
+an error; setting neither is an error.
 """
 
 

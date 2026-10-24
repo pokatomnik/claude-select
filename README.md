@@ -90,6 +90,11 @@ Use `--` when an argument could be mistaken for an option of
 Picker controls: Up/Down (or `k`/`j`) to move, Home/End (or `g`/`G`) to jump,
 Enter to confirm, Esc or `q` to cancel.
 
+The list never draws more rows than fit in your terminal: the visible window
+shrinks to the terminal height minus the header line and the cursor line.
+Labels longer than 200 characters are cut short with `...` so that a wrapped
+line cannot break the in-place redraw.
+
 ### About `claude select`
 
 `claude` is already the [CC] binary, so the console script is named
@@ -114,13 +119,23 @@ claude() {
 | Variable                   | Required                | Purpose                                                                                                                      |
 | -------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `ANTHROPIC_BASE_URL`       | yes                     | API base URL of your endpoint.                                                                                               |
-| `ANTHROPIC_API_KEY`        | at least one credential | Sent as the `x-api-key` header.                                                                                              |
-| `ANTHROPIC_AUTH_TOKEN`     | at least one credential | Sent as `Authorization: Bearer <token>`.                                                                                     |
+| `ANTHROPIC_API_KEY`        | exactly one credential  | Sent as the `x-api-key` header.                                                                                              |
+| `ANTHROPIC_AUTH_TOKEN`     | exactly one credential  | Sent as `Authorization: Bearer <token>`.                                                                                     |
 | `CLAUDE_SELECT_MODELS_URL` | no                      | Overrides the models endpoint. Defaults to `<base>/v1/models`, or `<base>/models` when the base URL already ends with `/v1`. |
 
 Most gateways expect `ANTHROPIC_AUTH_TOKEN`; the official Anthropic API uses
 `ANTHROPIC_API_KEY`. If your provider exposes the catalog under a different
 path, set `CLAUDE_SELECT_MODELS_URL`.
+
+Set one credential, not both. If both variables are exported, `claude-select`
+refuses to start and says so:
+
+```
+claude-select: Both ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN are set. Unset one of them: they are alternative ways to authenticate, and claude-select does not know which one your endpoint expects.
+```
+
+A blank value does not count as set, so `ANTHROPIC_AUTH_TOKEN=" "` next to a
+real `ANTHROPIC_API_KEY` is fine.
 
 ```sh
 export ANTHROPIC_BASE_URL="https://api.anthropic.com"
@@ -135,7 +150,14 @@ The models endpoint may return any of these shapes:
 - Ollama: `{"models": [{"name": "..."}]}`
 - a bare JSON array of strings or objects
 
-Anthropic-style pagination (`has_more` + `last_id`) is followed automatically.
+Anthropic-style pagination (`has_more` + `last_id`) is followed automatically,
+so a long catalog is never silently truncated. The first request is sent
+without a `limit` parameter; later pages ask for 1000 models at a time. If the
+endpoint answers a page request with HTTP 400 or 422, `claude-select` binary
+searches for the largest `limit` it does accept and keeps using that; if it
+accepts no value at all, the remaining pages are fetched without `limit`. A
+catalog that still would not finish within 1000 pages is reported as an error
+rather than shown partially.
 
 ### Launch settings per model
 
@@ -154,6 +176,24 @@ model:
 A value you already export (for example `CLAUDE_CODE_MAX_OUTPUT_TOKENS=4000`)
 always wins over the built-in profile. The `[1m]` suffix is not added for
 known models whose context window is smaller than one million tokens.
+
+#### The 1M assumption for unknown models
+
+The models endpoint does not report context windows, output limits, or any
+other launch capability, so there is nothing to read them from. `claude-select`
+therefore has to guess for every model it has no profile for, and it guesses
+one million tokens.
+
+This is a deliberate trade-off: the picker stays universal — any id your
+gateway lists can be selected and started — at the cost of compatibility. If
+the real context window of a model is smaller than one million tokens,
+`claude-select` does not detect that; the endpoint rejects requests that
+exceed the model's actual limit.
+
+Known Anthropic models are unaffected: they use the built-in profiles in
+`claude_select/profiles.py`, which carry the real numbers. Override the guess
+by exporting `CLAUDE_CODE_MAX_OUTPUT_TOKENS` (or by using a model id that has a
+profile).
 
 ## Behavior and exit codes
 

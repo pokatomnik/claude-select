@@ -7,13 +7,20 @@
 from __future__ import annotations
 
 import sys
-from typing import IO, List, Optional, Sequence
+from typing import IO, List, Optional, Sequence, Tuple
 
 from .errors import TerminalError
 from .keys import Key
-from .terminal import Screen, is_interactive, raw_mode, read_key
+from .terminal import (
+    Screen,
+    is_interactive,
+    raw_mode,
+    read_key,
+    terminal_size,
+)
 
 DEFAULT_MAX_VISIBLE = 12
+MAX_LINE_WIDTH = 200
 
 _SELECTED_MARKER = "> "
 _UNSELECTED_MARKER = "  "
@@ -82,7 +89,7 @@ class PickerState:
         lines = []
         for position in range(self.offset, end):
             marker = _SELECTED_MARKER if position == self.index else _UNSELECTED_MARKER
-            lines.append(marker + self._items[position])
+            lines.append(fit_line(marker + self._items[position]))
         return lines
 
     def _set_index(self, target: int) -> None:
@@ -93,12 +100,39 @@ class PickerState:
             self.offset = self.index - self._max_visible + 1
 
 
+def visible_rows(max_visible: int, rows: int) -> int:
+    """Clamp the list height so the block plus the cursor fits on screen."""
+    return max(1, min(max_visible, rows - 2))
+
+
+def _fileno_or_none(stream: IO[str]) -> Optional[int]:
+    """Return the fd behind ``stream``, or ``None`` when it has none."""
+    try:
+        return stream.fileno()
+    except (AttributeError, ValueError, OSError):
+        return None
+
+
+def fit_line(line: str, width: int = MAX_LINE_WIDTH) -> str:
+    """Truncate ``line`` so it never wraps on the terminal.
+
+    A wrapped line occupies more than one screen row, which breaks the
+    cursor arithmetic in :meth:`Screen.draw`. The cap is deliberately large:
+    cutting a long id at 200 characters changes the view far less than
+    losing the redraw entirely.
+    """
+    if len(line) <= width:
+        return line
+    return line[: max(width - 3, 0)] + "..."
+
+
 def pick(
     items: Sequence[str],
     *,
     input_stream: Optional[IO[str]] = None,
     output_stream: Optional[IO[str]] = None,
     max_visible: int = DEFAULT_MAX_VISIBLE,
+    size: Optional[Tuple[int, int]] = None,
 ) -> Optional[int]:
     """Show an arrow-key picker.
 
@@ -122,13 +156,15 @@ def pick(
             "directly in your shell."
         )
 
-    state = PickerState(labels, max_visible=max_visible)
+    _, rows = terminal_size(sink) if size is None else size
+    state = PickerState(labels, max_visible=visible_rows(max_visible, rows))
     screen = Screen(sink)
     fd = source.fileno()
+    output_fd = _fileno_or_none(sink)
 
-    screen.hide_cursor()
     try:
-        with raw_mode(fd):
+        screen.hide_cursor()
+        with raw_mode(fd, output_fd=output_fd):
             screen.draw(state.render_lines())
             while True:
                 key = read_key(fd)

@@ -25,6 +25,17 @@ class ModelArgumentTests(unittest.TestCase):
     def test_unknown_model_gets_million_context_suffix(self) -> None:
         self.assertEqual("glm-4.6[1m]", model_argument("glm-4.6"))
 
+    def test_existing_suffix_is_not_doubled(self) -> None:
+        self.assertEqual("glm-4.6[1m]", model_argument("glm-4.6[1m]"))
+        self.assertEqual("glm-4.6[1M]", model_argument("glm-4.6[1M]"))
+        self.assertEqual("claude-opus-5-5[1m]", model_argument("claude-opus-5-5[1m]"))
+
+    def test_known_model_with_suffix_keeps_profile_limit(self) -> None:
+        self.assertEqual(
+            {MAX_OUTPUT_TOKENS_ENV: "128000"},
+            default_environment("claude-opus-5-5[1m]"),
+        )
+
     def test_default_context_is_one_million(self) -> None:
         self.assertEqual(1_000_000, DEFAULT_CONTEXT_TOKENS)
 
@@ -156,6 +167,21 @@ class RunClaudeTests(unittest.TestCase):
         )
 
         self.assertEqual("4000", seen["env"][MAX_OUTPUT_TOKENS_ENV])
+
+    def test_empty_user_value_is_replaced_by_profile(self) -> None:
+        seen = {}
+
+        def fake_execve(path: str, args, env) -> None:
+            seen["env"] = dict(env)
+
+        run_claude(
+            "claude-opus-5-5",
+            which=lambda name: "/opt/bin/claude",
+            execve=fake_execve,
+            environ={MAX_OUTPUT_TOKENS_ENV: ""},
+        )
+
+        self.assertEqual("128000", seen["env"][MAX_OUTPUT_TOKENS_ENV])
 
     def test_missing_binary(self) -> None:
         with self.assertRaises(ClaudeNotFoundError) as raised:

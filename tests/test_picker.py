@@ -1,9 +1,37 @@
 import io
 import unittest
+from typing import List
 
 from claude_select.errors import TerminalError
 from claude_select.keys import Key, decode_key, decode_windows_key
-from claude_select.picker import PickerState, pick
+from claude_select.picker import (
+    MAX_LINE_WIDTH,
+    PickerState,
+    fit_line,
+    pick,
+    visible_rows,
+)
+
+
+class _FakeTty:
+    def __init__(self, fail_first_write: bool = False) -> None:
+        self.writes: List[str] = []
+        self._fail_first_write = fail_first_write
+
+    def isatty(self) -> bool:
+        return True
+
+    def fileno(self) -> int:
+        return 0
+
+    def write(self, text: str) -> int:
+        self.writes.append(text)
+        if self._fail_first_write and len(self.writes) == 1:
+            raise OSError("write failed")
+        return len(text)
+
+    def flush(self) -> None:
+        pass
 
 
 class DecodeKeyTests(unittest.TestCase):
@@ -133,6 +161,46 @@ class PickerStateTests(unittest.TestCase):
         self.assertEqual(["a"], state.items)
 
 
+class VisibleRowsTests(unittest.TestCase):
+    def test_keeps_small_windows(self) -> None:
+        self.assertEqual(12, visible_rows(12, 40))
+
+    def test_reserves_a_row_for_the_header_and_the_cursor(self) -> None:
+        self.assertEqual(8, visible_rows(12, 10))
+
+    def test_never_goes_below_one(self) -> None:
+        self.assertEqual(1, visible_rows(12, 2))
+        self.assertEqual(1, visible_rows(12, 1))
+        self.assertEqual(1, visible_rows(12, 0))
+
+
+class FitLineTests(unittest.TestCase):
+    def test_short_line_is_unchanged(self) -> None:
+        self.assertEqual("> my-model", fit_line("> my-model"))
+
+    def test_line_at_the_limit_is_unchanged(self) -> None:
+        line = "x" * MAX_LINE_WIDTH
+        self.assertEqual(line, fit_line(line))
+
+    def test_long_line_is_truncated_with_an_ellipsis(self) -> None:
+        line = "x" * (MAX_LINE_WIDTH + 50)
+        fitted = fit_line(line)
+        self.assertEqual(MAX_LINE_WIDTH, len(fitted))
+        self.assertTrue(fitted.endswith("..."))
+        self.assertTrue(line.startswith(fitted[:-3]))
+
+    def test_custom_width(self) -> None:
+        self.assertEqual("abcd...", fit_line("abcdefghij", width=7))
+
+
+class PickerRenderTests(unittest.TestCase):
+    def test_render_caps_long_labels(self) -> None:
+        state = PickerState(["y" * (MAX_LINE_WIDTH * 2)])
+        line = state.render_lines()[0]
+        self.assertEqual(MAX_LINE_WIDTH, len(line))
+        self.assertTrue(line.startswith("> "))
+
+
 class PickGuardTests(unittest.TestCase):
     def test_requires_terminal(self) -> None:
         with self.assertRaises(TerminalError):
@@ -145,6 +213,12 @@ class PickGuardTests(unittest.TestCase):
     def test_requires_items(self) -> None:
         with self.assertRaises(ValueError):
             pick([], input_stream=io.StringIO(), output_stream=io.StringIO())
+
+    def test_cursor_is_shown_again_when_hiding_fails(self) -> None:
+        sink = _FakeTty(fail_first_write=True)
+        with self.assertRaises(OSError):
+            pick(["a"], input_stream=_FakeTty(), output_stream=sink)
+        self.assertEqual(["\x1b[?25l", "\x1b[?25h"], sink.writes)
 
 
 if __name__ == "__main__":

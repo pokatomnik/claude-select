@@ -48,7 +48,8 @@ def run_claude(
 
     env = dict(os.environ if environ is None else environ)
     for name, value in default_environment(model_id).items():
-        env.setdefault(name, value)
+        if not env.get(name):
+            env[name] = value
 
     command = build_command(model_id, extra_args)
     try:

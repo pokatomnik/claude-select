@@ -46,6 +46,17 @@ tests/           unittest suite (offline, no I/O)
 6. **Strings tests rely on:** `Select model`, `No models found`, the
    `claude-select: ` prefix, and the env variable names. Change them only
    together with the tests and README.
+7. **Exactly one credential.** `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN`
+   are alternatives: setting both is a `ConfigError`, and a blank value does
+   not count as set. This is a deliberate divergence from [CC], which sends
+   both headers.
+8. **The whole catalog is fetched or the run fails.** Pagination follows
+   `has_more` + `last_id`; the first request omits `limit`, later ones ask for
+   1000 and fall back to a binary-searched limit on 400/422. Never truncate
+   silently — hitting `MAX_PAGES` raises `ApiError`.
+9. **Line width is capped, not measured.** The picker truncates labels at
+   `MAX_LINE_WIDTH` (200) characters instead of querying the terminal width,
+   because a wrapped line breaks `Screen.draw`'s cursor arithmetic.
 
 ## Exit codes
 
@@ -64,6 +75,9 @@ tests/           unittest suite (offline, no I/O)
   `config.py`, a test in `tests/test_config.py`, and a README table row.
 - **Support a new catalog shape:** extend `parse_models` / `_entries` in
   `models.py` and cover it in `tests/test_models.py`.
+- **Change pagination:** `fetch_models` / `_request_page` in `models.py`;
+  keep the no-`limit` first request and cover the change in
+  `tests/test_models.py` with `catalog_transport`.
 - **Change picker behavior:** pure logic in `PickerState` (`picker.py`), key
   maps in `keys.py`, terminal plumbing in `terminal.py`.
 - **Change how claude is started:** `build_command` / `run_claude` in

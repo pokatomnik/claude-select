@@ -75,40 +75,56 @@ class SettingsFromEnvTests(unittest.TestCase):
         self.assertIsNone(settings.api_key)
         self.assertEqual("token", settings.auth_token)
 
-    def test_strips_whitespace(self) -> None:
-        settings = settings_from_env(
-            {
-                BASE_URL_ENV: "  https://api.example.com/  ",
-                API_KEY_ENV: " sk-test ",
-            }
-        )
-        self.assertEqual("https://api.example.com/", settings.base_url)
-        self.assertEqual("sk-test", settings.api_key)
-        self.assertEqual("https://api.example.com/v1/models", settings.models_url)
-
-    def test_derives_models_url(self) -> None:
-        settings = settings_from_env(
-            {BASE_URL_ENV: "https://api.example.com", API_KEY_ENV: "sk-test"}
-        )
-        self.assertEqual("https://api.example.com/v1/models", settings.models_url)
-
-    def test_models_url_override(self) -> None:
-        settings = settings_from_env(
-            {
-                BASE_URL_ENV: "https://api.example.com",
-                API_KEY_ENV: "sk-test",
-                MODELS_URL_ENV: "https://catalog.example.com/models",
-            }
-        )
-        self.assertEqual("https://catalog.example.com/models", settings.models_url)
-
-    def test_rejects_invalid_models_url_override(self) -> None:
+    def test_rejects_both_credentials(self) -> None:
         with self.assertRaises(ConfigError) as raised:
             settings_from_env(
                 {
                     BASE_URL_ENV: "https://api.example.com",
                     API_KEY_ENV: "sk-test",
-                    MODELS_URL_ENV: "not-a-url",
+                    AUTH_TOKEN_ENV: "token",
+                }
+            )
+        message = str(raised.exception)
+        self.assertIn(API_KEY_ENV, message)
+        self.assertIn(AUTH_TOKEN_ENV, message)
+        self.assertIn("Unset one", message)
+
+    def test_blank_second_credential_is_not_a_conflict(self) -> None:
+        settings = settings_from_env(
+            {
+                BASE_URL_ENV: "https://api.example.com",
+                API_KEY_ENV: "sk-test",
+                AUTH_TOKEN_ENV: "   ",
+            }
+        )
+        self.assertEqual("sk-test", settings.api_key)
+        self.assertIsNone(settings.auth_token)
+
+
+class ModelsUrlOverrideTests(unittest.TestCase):
+    def test_defaults_to_the_base_url(self) -> None:
+        settings = settings_from_env(
+            {BASE_URL_ENV: "https://api.example.com", API_KEY_ENV: "sk-test"}
+        )
+        self.assertEqual("https://api.example.com/v1/models", settings.models_url)
+
+    def test_override(self) -> None:
+        settings = settings_from_env(
+            {
+                BASE_URL_ENV: "https://api.example.com",
+                AUTH_TOKEN_ENV: "token",
+                MODELS_URL_ENV: "https://catalog.example.com/models",
+            }
+        )
+        self.assertEqual("https://catalog.example.com/models", settings.models_url)
+
+    def test_rejects_a_relative_override(self) -> None:
+        with self.assertRaises(ConfigError) as raised:
+            settings_from_env(
+                {
+                    BASE_URL_ENV: "https://api.example.com",
+                    API_KEY_ENV: "sk-test",
+                    MODELS_URL_ENV: "catalog.example.com/models",
                 }
             )
         self.assertIn(MODELS_URL_ENV, str(raised.exception))

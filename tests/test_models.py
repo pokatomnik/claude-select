@@ -1,11 +1,12 @@
 import json
 import unittest
 from typing import Any, List, Mapping, Tuple
+from urllib.parse import parse_qsl, urlsplit
 
 from claude_select.config import Settings
 from claude_select.errors import ApiError, AuthError, NetworkError
 from claude_select.http import HttpResponse
-from claude_select.models import Model, fetch_models, parse_models
+from claude_select.models import MAX_PAGES, Model, fetch_models, parse_models
 
 
 def make_settings(**overrides: Any) -> Settings:
@@ -36,6 +37,34 @@ def response(status: int, payload: Any) -> HttpResponse:
     else:
         body = json.dumps(payload).encode("utf-8")
     return HttpResponse(status, body)
+
+
+def catalog_transport(
+    ids: List[str], accepted_limit: int, default_size: int
+) -> Tuple[Any, List[str]]:
+    """Serve ``ids`` in pages like an endpoint that caps ``limit``."""
+    urls: List[str] = []
+
+    def transport(url: str, headers: Mapping[str, str]) -> HttpResponse:
+        urls.append(url)
+        query = dict(parse_qsl(urlsplit(url).query))
+        limit = query.get("limit")
+        if limit is not None and int(limit) > accepted_limit:
+            return HttpResponse(400, b'{"error": {"message": "limit too large"}}')
+        start = 0
+        if "after_id" in query:
+            start = ids.index(query["after_id"]) + 1
+        size = int(limit) if limit is not None else default_size
+        chunk = ids[start : start + size]
+        more = start + size < len(ids)
+        body = {
+            "data": [{"id": identifier} for identifier in chunk],
+            "has_more": more,
+            "last_id": chunk[-1],
+        }
+        return HttpResponse(200, json.dumps(body).encode("utf-8"))
+
+    return transport, urls
 
 
 class ParseModelsTests(unittest.TestCase):
@@ -153,6 +182,68 @@ class FetchModelsTests(unittest.TestCase):
         )
         self.assertEqual([Model("a")], fetch_models(make_settings(), transport))
         self.assertEqual(1, len(transport.calls))
+
+    def test_first_request_has_no_limit(self) -> None:
+        transport = FakeTransport([response(200, {"data": [{"id": "a"}]})])
+        fetch_models(make_settings(), transport)
+        self.assertNotIn("limit", transport.calls[0][0])
+
+    def test_fetches_every_page_with_the_full_limit(self) -> None:
+        ids = [str(index) for index in range(2500)]
+        transport, urls = catalog_transport(ids, accepted_limit=1000, default_size=100)
+
+        models = fetch_models(make_settings(), transport)
+
+        self.assertEqual(ids, [model.id for model in models])
+        self.assertNotIn("limit", urls[0])
+        self.assertIn("limit=1000", urls[1])
+
+    def test_binary_searches_a_smaller_limit(self) -> None:
+        ids = [str(index) for index in range(100)]
+        transport, urls = catalog_transport(ids, accepted_limit=25, default_size=10)
+
+        models = fetch_models(make_settings(), transport)
+
+        self.assertEqual(ids, [model.id for model in models])
+        self.assertIn("limit=25", urls[-1])
+        self.assertLess(len(urls), 20)
+
+    def test_falls_back_to_no_limit_when_nothing_is_accepted(self) -> None:
+        ids = [str(index) for index in range(5)]
+
+        def transport(url: str, headers: Mapping[str, str]) -> HttpResponse:
+            if "limit" in url:
+                return HttpResponse(400, b'{"error": "no limit"}')
+            query = dict(parse_qsl(urlsplit(url).query))
+            start = ids.index(query["after_id"]) + 1 if "after_id" in query else 0
+            chunk = ids[start : start + 2]
+            body = {
+                "data": [{"id": identifier} for identifier in chunk],
+                "has_more": start + 2 < len(ids),
+                "last_id": chunk[-1],
+            }
+            return HttpResponse(200, json.dumps(body).encode("utf-8"))
+
+        models = fetch_models(make_settings(), transport)
+
+        self.assertEqual(ids, [model.id for model in models])
+
+    def test_reports_that_the_catalog_is_too_long(self) -> None:
+        def endless(url: str, headers: Mapping[str, str]) -> HttpResponse:
+            query = dict(parse_qsl(urlsplit(url).query))
+            last_id = query.get("after_id", "start")
+            return response(
+                200,
+                {
+                    "data": [{"id": last_id}],
+                    "has_more": True,
+                    "last_id": last_id + "x",
+                },
+            )
+
+        with self.assertRaises(ApiError) as raised:
+            fetch_models(make_settings(), endless)
+        self.assertIn(str(MAX_PAGES), str(raised.exception))
 
     def test_auth_error_for_401(self) -> None:
         transport = FakeTransport([response(401, {"error": "nope"})])

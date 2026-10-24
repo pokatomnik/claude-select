@@ -8,7 +8,7 @@ limit, so [CC] applies its own defaults.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Mapping
+from typing import Dict, Mapping, Optional
 
 ONE_MILLION_TOKENS = 1_000_000
 DEFAULT_CONTEXT_TOKENS = ONE_MILLION_TOKENS
@@ -48,7 +48,9 @@ KNOWN_MODELS: Mapping[str, ModelProfile] = {
 
 def model_argument(model_id: str) -> str:
     """Return the value passed to ``claude --model``."""
-    profile = KNOWN_MODELS.get(model_id)
+    if _has_context_suffix(model_id):
+        return model_id
+    profile = _profile_for(model_id)
     context = profile.context_tokens if profile else DEFAULT_CONTEXT_TOKENS
     if context >= ONE_MILLION_TOKENS:
         return model_id + EXTENDED_CONTEXT_SUFFIX
@@ -57,7 +59,18 @@ def model_argument(model_id: str) -> str:
 
 def default_environment(model_id: str) -> Dict[str, str]:
     """Return the environment variables a known model needs; unknown models get none."""
-    profile = KNOWN_MODELS.get(model_id)
+    profile = _profile_for(model_id)
     if profile is None:
         return {}
     return {MAX_OUTPUT_TOKENS_ENV: str(profile.max_output_tokens)}
+
+
+def _has_context_suffix(model_id: str) -> bool:
+    return model_id.lower().endswith(EXTENDED_CONTEXT_SUFFIX)
+
+
+def _profile_for(model_id: str) -> Optional[ModelProfile]:
+    base_id = model_id
+    if _has_context_suffix(model_id):
+        base_id = model_id[: -len(EXTENDED_CONTEXT_SUFFIX)]
+    return KNOWN_MODELS.get(base_id)

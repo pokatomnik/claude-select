@@ -72,6 +72,16 @@ def settings_from_env(environ: Mapping[str, str]) -> Settings:
             + " are both unset. Set the same credentials you use for [CC] "
             "and try again."
         )
+    if api_key and auth_token:
+        raise ConfigError(
+            "Both "
+            + API_KEY_ENV
+            + " and "
+            + AUTH_TOKEN_ENV
+            + " are set. Unset one of them: they are alternative ways to "
+            "authenticate, and claude-select does not know which one your "
+            "endpoint expects."
+        )
 
     models_url = _clean(environ.get(MODELS_URL_ENV))
     if models_url:
